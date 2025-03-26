@@ -1,93 +1,159 @@
-import axios from 'axios';
-import dotenv from 'dotenv';
+import { ZoomMtg } from "@zoom/meetingsdk";
+import { SignJWT } from "jose";
+import { KJUR } from 'jsrsasign'
+// Function to initialize Zoom SDK
+const initializeZoomSDK = (): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") {
+      reject(new Error("Window object is not available"));
+      return;
+    }
 
-dotenv.config();
+    ZoomMtg.setZoomJSLib("https://source.zoom.us/2.18.0/lib", "/av");
+    ZoomMtg.preLoadWasm();
+    ZoomMtg.prepareWebSDK();
 
-const ZOOM_API_BASE_URL = 'https://api.zoom.us/v2';
-const ZOOM_OAUTH_TOKEN_URL = 'https://zoom.us/oauth/token';
-
-interface ZoomMeeting {
-  id: string;
-  join_url: string;
-  password: string;
-}
-
-interface ZoomTokenResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-}
-
-export class ZoomClient {
-  private clientId: string = process.env.ZOOM_CLIENT_ID!;
-  private clientSecret: string = process.env.ZOOM_CLIENT_SECRET!;
-  private redirectUri: string = process.env.ZOOM_REDIRECT_URI!;
-  private accessToken: string | null = null;
-
-  // Get OAuth authorization URL
-  getAuthUrl(): string {
-    const authUrl = `https://zoom.us/oauth/authorize?response_type=code&client_id=${this.clientId}&redirect_uri=${this.redirectUri}`;
-    return authUrl;
-  }
-
-  // Exchange authorization code for access token
-  async getAccessToken(code: string): Promise<string> {
-    const response = await axios.post<ZoomTokenResponse>(
-      ZOOM_OAUTH_TOKEN_URL,
-      null,
-      {
-        params: {
-          grant_type: 'authorization_code',
-          code,
-          redirect_uri: this.redirectUri,
-        },
-        auth: {
-          username: this.clientId,
-          password: this.clientSecret,
-        },
+    const checkReady = setInterval(() => {
+      if (ZoomMtg.checkFeatureRequirements()) {
+        // Check if a known method is available
+        clearInterval(checkReady);
+        resolve();
       }
-    );
-    this.accessToken = response.data.access_token;
-    return this.accessToken;
-  }
+    }, 100);
 
-  // Create a Zoom meeting
-  async createMeeting(userId: string = 'me'): Promise<ZoomMeeting> {
-    if (!this.accessToken) throw new Error('Access token not found');
+    setTimeout(() => {
+      clearInterval(checkReady);
+      reject(new Error("Zoom SDK failed to initialize within 10 seconds"));
+    }, 10000);
+  });
+};
 
-    const response = await axios.post(
-      `${ZOOM_API_BASE_URL}/users/${userId}/meetings`,
-      {
-        topic: 'Bot Test Meeting',
-        type: 2, // Scheduled meeting
-        start_time: new Date().toISOString(),
-        duration: 60,
-        timezone: 'UTC',
-        settings: {
-          host_video: false,
-          participant_video: false,
-          join_before_host: true,
-          mute_upon_entry: true,
-          auto_recording: 'none',
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-        },
-      }
-    );
-
-    return response.data;
-  }
-
-  // Generate signature for Zoom Web SDK
-  generateSignature(meetingNumber: string, role: number): string {
-    // In a real app, use a proper signature generation library
-    // This is a placeholder; Zoom requires a JWT signature
-    // See Zoom Web SDK documentation for proper implementation
-    return 'placeholder-signature';
-  }
+interface JWTPayload {
+  sdkKey: string;
+  exp: number;
+  mn?: string;
+  role?: number;
 }
 
-export const zoomClient = new ZoomClient();
+export class ZoomMeetingClient {
+  private sdkKey: string;
+  private initialized: boolean = false;
+
+  constructor() {
+    this.sdkKey = process.env.NEXT_PUBLIC_ZOOM_CLIENT_ID || "";
+    if (!this.sdkKey) {
+      throw new Error("NEXT_PUBLIC_ZOOM_CLIENT_ID is not defined");
+    }
+  }
+
+  async initialize() {
+    if (!this.initialized) {
+      await initializeZoomSDK();
+      this.initialized = true;
+    }
+  }
+
+
+  async generateSignature(
+    meetingNumber: string | number,
+    role: number,
+    expirationSeconds?: number
+  ) {
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = expirationSeconds ? iat + expirationSeconds : iat + 60 * 60 * 2; // Default 2 hours
+
+    const oHeader = { alg: "HS256", typ: "JWT" };
+
+    const oPayload = {
+      appKey: process.env.ZOOM_MEETING_SDK_KEY,
+      sdkKey: process.env.ZOOM_MEETING_SDK_KEY,
+      mn: meetingNumber,
+      role,
+      iat,
+      exp,
+      tokenExp: exp,
+    };
+
+    const sHeader = JSON.stringify(oHeader);
+    const sPayload = JSON.stringify(oPayload);
+
+    return KJUR.jws.JWS.sign(
+      "HS256",
+      sHeader,
+      sPayload,
+      process.env.NEXT_PUBLIC_ZOOM_CLIENT_SECRET
+    );
+  }
+
+  async joinMeeting(
+    userName: string,
+    meetingNumber: string,
+    password: string,
+    userEmail: string
+  ): Promise<void> {
+    try {
+      // Ensure SDK is initialized before proceeding
+      await this.initialize();
+
+      console.log("Joining meeting with:", {
+        userName,
+        meetingNumber,
+        userEmail,
+      });
+      const signature = await this.generateSignature(meetingNumber,0,120);
+      console.log("Generated signature:", signature);
+
+      return new Promise((resolve, reject) => {
+        console.log("Initializing ZoomMtg.join...");
+        ZoomMtg.init({
+          leaveUrl: "http://localhost:3000",
+          patchJsMedia: true,
+          leaveOnPageUnload: true,
+          success: (success: unknown) => {
+            console.log(success);
+            // can this be async?
+            ZoomMtg.join({
+              signature: signature,
+              sdkKey: this.sdkKey,
+              meetingNumber: meetingNumber,
+              passWord: password,
+              userName: userName,
+              userEmail: userEmail,
+              // tk: registrantToken,
+              // zak: zakToken,
+              success: (success: unknown) => {
+                console.log(success);
+              },
+              error: (error: unknown) => {
+                console.log(error);
+              },
+            });
+          },
+          error: (error: unknown) => {
+            console.log(error);
+          },
+        });
+
+        // ZoomMtg.join({
+        //   signature,
+        //   meetingNumber,
+        //   userName,
+        //   sdkKey: this.sdkKey,
+        //   userEmail,
+        //   passWord: password,
+        //   success: (joinSuccess: any) => {
+        //     console.log("Join meeting success:", joinSuccess);
+        //     resolve();
+        //   },
+        //   error: (joinError: any) => {
+        //     console.error("Join meeting error:", joinError);
+        //     reject(joinError);
+        //   },
+        // });
+      });
+    } catch (error) {
+      console.error("Zoom meeting join error:", error);
+      throw error;
+    }
+  }
+}

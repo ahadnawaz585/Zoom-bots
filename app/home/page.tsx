@@ -326,7 +326,7 @@ export default function Home() {
   return (
     <>
       <DarkModeScript />
-      
+
       <div className="h-screen flex flex-col bg-[#F5F8FC] dark:bg-gradient-to-b dark:from-gray-900 dark:to-gray-800 transition-colors duration-300">
         <Navbar />
         

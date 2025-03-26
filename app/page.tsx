@@ -6,12 +6,16 @@ import Cookies from "js-cookie";
 import { Video, User, Lock, Moon, Sun } from "lucide-react";
 import { getUserByUsername } from "@/lib/firebase/users";
 import bcrypt from 'bcryptjs';
-
+import { ZoomMeetingClient } from "@/lib/zoom";
+import ZoomMtgEmbedded from "@zoom/meetingsdk/embedded"
 const generateRandomSession = () => {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 };
 
 export default function Login() {
+  const client = ZoomMtgEmbedded.createClient()
+
+let meetingSDKElement = document.getElementById('meetingSDKElement')
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -24,7 +28,7 @@ export default function Login() {
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
+
     if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
       setDarkMode(true);
       document.documentElement.classList.add('dark');
@@ -42,7 +46,7 @@ export default function Login() {
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
     setDarkMode(newDarkMode);
-    
+
     if (newDarkMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
@@ -57,26 +61,26 @@ export default function Login() {
       username: username.trim() === "",
       password: password.trim() === ""
     };
-    
+
     setFieldErrors(errors);
-    
+
     if (errors.username || errors.password) {
       setError("Please fill in all required fields");
       return false;
     }
-    
+
     return true;
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     setError("");
-    
+
     if (!validateForm()) {
       return;
     }
-    
+
     setIsLoading(true);
 
     try {
@@ -100,15 +104,15 @@ export default function Login() {
         return;
       }
 
-      Cookies.set("session", user.id, { 
+      Cookies.set("session", user.id, {
         expires: 7,
-        secure: true, 
-        sameSite: 'strict' 
+        secure: true,
+        sameSite: 'strict'
       });
 
       if (user.role === 'admin') {
         const adminSession = generateRandomSession();
-        Cookies.set("adminSession", adminSession, { 
+        Cookies.set("adminSession", adminSession, {
           expires: 7,
           secure: true,
           sameSite: 'strict'
@@ -136,15 +140,24 @@ export default function Login() {
     }
   };
 
+  async function handleClick() {
+    const zoomClient = new ZoomMeetingClient();
+    await zoomClient.joinMeeting("User Name", "84061071937", "N40wiU", "ahadnawaz5852gmail.com");
+  }
+
 
   return (
-    
+
     <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-300 ${darkMode ? 'bg-gradient-to-b from-gray-900 to-gray-800' : 'bg-gradient-to-b from-blue-50 to-gray-50'}`}>
+           <div id="meetingSDKElement">
+
+</div>
       <div className={`w-full max-w-md rounded-xl shadow-lg p-8 border transition-colors duration-300 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-100'}`}>
         {/* Theme toggle button */}
 
         <div className="absolute top-4 right-4">
-          <button 
+          <button onClick={handleClick}>skip</button>
+          <button
             onClick={toggleDarkMode}
             className={`p-2 rounded-full transition-colors duration-300 ${darkMode ? 'bg-gray-700 text-yellow-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
@@ -152,7 +165,7 @@ export default function Login() {
             {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>
         </div>
-        
+
         {/* Header with Zoom-style branding */}
         <div className="flex flex-col items-center justify-center mb-8">
           <div className={`bg-blue-600 p-3 rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-300 mb-6`}>
@@ -165,7 +178,7 @@ export default function Login() {
             Sign in to manage your automated meeting assistants
           </p>
         </div>
-        
+
         {/* Error message */}
         {error && (
           <div className="bg-red-900/20 border-l-4 border-red-500 text-red-500 p-4 rounded-md mb-6 
@@ -201,7 +214,7 @@ export default function Login() {
                 onChange={(e) => {
                   setUsername(e.target.value);
                   if (e.target.value.trim() !== '') {
-                    setFieldErrors({...fieldErrors, username: false});
+                    setFieldErrors({ ...fieldErrors, username: false });
                     if (!fieldErrors.password) setError("");
                   }
                 }}
@@ -213,7 +226,7 @@ export default function Login() {
               <p className="mt-1 text-sm text-red-500">Username is required</p>
             )}
           </div>
-          
+
           <div className="space-y-1">
             <label htmlFor="password" className={`block text-sm font-medium transition-colors duration-300 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
               Password
@@ -234,7 +247,7 @@ export default function Login() {
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (e.target.value.trim() !== '') {
-                    setFieldErrors({...fieldErrors, password: false});
+                    setFieldErrors({ ...fieldErrors, password: false });
                     if (!fieldErrors.username) setError("");
                   }
                 }}
@@ -246,7 +259,7 @@ export default function Login() {
               <p className="mt-1 text-sm text-red-500">Password is required</p>
             )}
           </div>
-          
+
           {/* Remember Me checkbox */}
           <div className="flex items-center mt-4">
             <input
@@ -257,15 +270,15 @@ export default function Login() {
               className={`h-4 w-4 rounded border focus:ring-2 focus:ring-blue-500 
                 ${darkMode ? 'bg-gray-700 border-gray-600 text-blue-500' : 'bg-gray-50 border-gray-300 text-blue-600'}`}
             />
-            <label 
-              htmlFor="remember-me" 
+            <label
+              htmlFor="remember-me"
               className={`ml-2 block text-sm transition-colors duration-300 
                 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
             >
               Remember me
             </label>
           </div>
-          
+
           <div className="pt-2 mt-6">
             <button
               type="submit"
